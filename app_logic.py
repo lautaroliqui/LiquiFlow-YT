@@ -13,29 +13,21 @@ CONFIG_FILE = "config.ini"
 config = configparser.ConfigParser()
 ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
-class DownloadCancelledError(Exception):
-    pass
+class DownloadCancelledError(Exception): pass
 
 class MyLogger:
     def __init__(self, status_callback=None):
         self.status_callback = status_callback
 
-    def debug(self, msg):
-        pass
-
-    def info(self, msg):
-        pass
-
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    
     def warning(self, msg):
-
-        if "unavailable" in msg or "hidden" in msg:
-            print(f"DEBUG WARNING (Ignorado): {msg}")
-        else:
-            print(f"DEBUG Internal Warning: {msg}")
-
+        if "unavailable" in msg or "hidden" in msg: pass
+        
     def error(self, msg):
         if self.status_callback:
-            self.status_callback(f"Error detectado: {msg}")
+            self.status_callback(f"Error de motor: {msg}")
 
 class FFmpegManager:
     FFMPEG_URL = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -46,19 +38,14 @@ class FFmpegManager:
         self.ffprobe_exe = os.path.join(self.bin_dir, 'ffprobe.exe')
 
     def get_ffmpeg_path(self):
-        if os.path.exists(self.ffmpeg_exe):
-            return self.bin_dir
-        return None
+        return self.bin_dir if os.path.exists(self.ffmpeg_exe) else None
 
     def is_installed(self):
-        local_check = os.path.exists(self.ffmpeg_exe)
-        system_check = shutil.which("ffmpeg") is not None
-        return local_check or system_check
+        return os.path.exists(self.ffmpeg_exe) or shutil.which("ffmpeg") is not None
 
     def install_ffmpeg(self, status_callback=None):
         try:
-            if not os.path.exists(self.bin_dir):
-                os.makedirs(self.bin_dir)
+            if not os.path.exists(self.bin_dir): os.makedirs(self.bin_dir)
             if status_callback: status_callback("Descargando FFmpeg...")
             response = requests.get(self.FFMPEG_URL, stream=True)
             response.raise_for_status()
@@ -81,25 +68,22 @@ class AppLogic:
         self.on_error = on_error
         self.on_finish = on_finish
         self.cancel_event = cancel_event
-        self.total_playlist_videos = 0
-        self.playlist_title = ""
         self.ffmpeg_manager = FFmpegManager()
         self.last_path = self.cargar_configuracion()
+        self.current_entries = [] 
+        self.ruta_catalogo_actual = None 
+        self.ids_en_ram = set()
 
     def _emit_status(self, msg):
         if self.on_status_change: self.on_status_change(msg)
-    
     def _emit_progress(self, val):
         if self.on_progress: self.on_progress(val)
-
     def _emit_error(self, msg):
         if self.on_error: self.on_error(msg)
         
     def cargar_configuracion(self):
         config.read(CONFIG_FILE)
-        if 'Settings' in config and 'last_download_path' in config['Settings']:
-            return config['Settings']['last_download_path']
-        return ""
+        return config['Settings']['last_download_path'] if 'Settings' in config and 'last_download_path' in config['Settings'] else ""
 
     def guardar_configuracion(self, path):
         if 'Settings' not in config: config['Settings'] = {}
@@ -108,153 +92,164 @@ class AppLogic:
 
     def get_user_videos_dir(self):
         home = os.path.expanduser("~")
-        candidates = [os.path.join(home, "Videos"), os.path.join(home, "Vídeos")]
-        for c in candidates:
+        for c in [os.path.join(home, "Videos"), os.path.join(home, "Vídeos")]:
             if os.path.isdir(c): return c
         return home
 
     def _clean_ansi(self, text):
         return ANSI_ESCAPE.sub('', text)
 
-    def _limpiar_archivos_temporales(self, carpeta_destino, es_playlist=False, playlist_title=""):
-        try:
-            target_dir = os.path.join(carpeta_destino, playlist_title) if es_playlist and playlist_title else carpeta_destino
-            if os.path.exists(target_dir):
-                for filename in os.listdir(target_dir):
-                    if filename.endswith(".part") or filename.endswith(".ytdl"):
-                        try: os.remove(os.path.join(target_dir, filename))
-                        except: pass
-            if es_playlist and playlist_title and os.path.exists(target_dir) and not os.listdir(target_dir):
-                try: os.rmdir(target_dir)
-                except: pass
-        except Exception: pass
+    def _cargar_catalogo_en_ram(self):
+        self.ids_en_ram.clear()
+        if self.ruta_catalogo_actual and os.path.exists(self.ruta_catalogo_actual):
+            with open(self.ruta_catalogo_actual, 'r', encoding='utf-8') as f:
+                for linea in f:
+                    partes = linea.split(',', 1)
+                    if partes: self.ids_en_ram.add(partes[0].strip())
+
+    def _registrar_en_catalogo(self, vid_id, titulo):
+        if not self.ruta_catalogo_actual: return
+        
+        if vid_id not in self.ids_en_ram:
+            self.ids_en_ram.add(vid_id)
+            with open(self.ruta_catalogo_actual, 'a', encoding='utf-8') as f:
+                titulo_seguro = str(titulo).replace(',', ' -').replace('\n', ' ')
+                f.write(f"{vid_id},{titulo_seguro}\n")
 
     def check_url_type_blocking(self, url):
-        self._emit_status("Analizando link (Modo Rápido)...")
-        print("DEBUG: Iniciando check_url_type_blocking...")
-
-        my_logger = MyLogger(status_callback=None)
-        
-        # Variables para guardar el resultado y procesarlo DESPUÉS de cerrar yt-dlp
-        result_info = None
+        self._emit_status("Analizando link (Extrayendo Metadatos)...")
+        my_logger = MyLogger(self._emit_status)
+        self.current_entries = []
         
         try:
             ydl_opts = {
-                'quiet': True,
-                'extract_flat': True,
-                'ignoreerrors': True,
-                'logger': my_logger,
-                'no_warnings': True,
-                'socket_timeout': 10,
+                'quiet': True, 'extract_flat': True, 'ignoreerrors': True,
+                'logger': my_logger, 'no_warnings': True, 'socket_timeout': 10,
             }
-            
-            print(f"DEBUG: Ejecutando YoutubeDL...")
-            
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result_info = ydl.extract_info(url, download=False)
             
-            print("DEBUG: YoutubeDL cerrado correctamente. Procesando datos...") 
-
-            # --- PROCESAMIENTO (Ya fuera del motor) ---
-            if not result_info:
-                print("DEBUG: Info vacía.")
-                return False, 0
+            if not result_info: return False, 0, ""
 
             if result_info.get('_type') == 'playlist' or 'entries' in result_info:
-                print("DEBUG: Es Playlist.")
-                
-                # Conteo seguro
-                count = result_info.get('playlist_count') or result_info.get('n_entries')
-                if not count:
-                    entries = result_info.get('entries', [])
-                    try:
-                        if not isinstance(entries, list): entries = list(entries)
-                        count = len(entries)
-                    except: count = 0
-
-                print(f"DEBUG: Conteo final: {count}")
-                
-                self.total_playlist_videos = count
-                self.playlist_title = self._clean_ansi(result_info.get('title', 'Playlist')).replace('/', '_')
-                
-                return True, self.total_playlist_videos
+                entries = result_info.get('entries', [])
+                self.current_entries = [e for e in entries if e and e.get('title') and '[Private video]' not in e.get('title') and '[Deleted video]' not in e.get('title')]
+                count = len(self.current_entries)
+                playlist_title = self._clean_ansi(result_info.get('title', 'Playlist')).replace('/', '_').replace('\\', '_')
+                return True, count, playlist_title
             else:
-                print("DEBUG: Es Video único.")
-                self.total_playlist_videos = 0
-                self.playlist_title = ""
-                return False, 0
-                    
+                return False, 0, result_info.get('title', 'Video')
+
         except Exception as e:
-            print(f"DEBUG ERROR: {str(e)}")
             self._emit_error(f"Error verificando: {str(e)}")
-            return False, 0
+            return False, 0, ""
 
     def hook_progreso(self, d):
-        try:
-            if self.cancel_event and self.cancel_event.is_set():
-                raise DownloadCancelledError("Cancelado")
+        if self.cancel_event and self.cancel_event.is_set():
+            raise DownloadCancelledError("Cancelado")
+        
+        if d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate')
+            downloaded = d.get('downloaded_bytes')
+            if total and downloaded: self._emit_progress(downloaded / total)
+            self._emit_status(f"Descargando: {self._clean_ansi(d.get('_percent_str', ''))}")
+        elif d['status'] == 'finished':
+            self._emit_status("Procesando conversión final...")
             
-            if d['status'] == 'downloading':
-                total = d.get('total_bytes') or d.get('total_bytes_estimate')
-                downloaded = d.get('downloaded_bytes')
-                if total and downloaded: self._emit_progress(downloaded / total)
-                
-                p_str = self._clean_ansi(d.get('_percent_str', ''))
-                clean_title = self._clean_ansi(d.get('info_dict', {}).get('title', 'Video'))
-                if len(clean_title) > 30: clean_title = clean_title[:27] + "..."
+            info = d.get('info_dict', {})
+            if info and 'id' in info and 'title' in info:
+                self._registrar_en_catalogo(info['id'], info['title'])
 
-                info = d.get('info_dict', {})
-                current = info.get('playlist_index')
-                total_v = self.total_playlist_videos or info.get('n_entries')
-                
-                prefix = f"[{current}/{total_v}] " if current and total_v else ""
-                self._emit_status(f"{prefix}Descargando: {p_str} - {clean_title}")
-                
-            elif d['status'] == 'finished':
-                self._emit_progress(1.0)
-                self._emit_status("Procesando conversión...")
+    def _generar_m3u8(self, playlist_title, path, format_type):
+        carpeta_playlists = os.path.join(path, "Playlists")
+        ruta_m3u8 = os.path.join(carpeta_playlists, f"{playlist_title}.m3u8")
+        ext = "mp4" if format_type == "video" else "m4a"
 
-        except DownloadCancelledError: raise 
-        except Exception: pass
+        with open(ruta_m3u8, 'w', encoding='utf-8') as f:
+            f.write("#EXTM3U\n")
+            for entry in self.current_entries:
+                vid_id = entry.get('id')
+                title = entry.get('title', 'Unknown')
+                ruta_relativa = f"../Libreria_Maestra/{vid_id}.{ext}"
+                f.write(f"#EXTINF:-1,{title}\n")
+                f.write(f"{ruta_relativa}\n")
 
-    def descargar(self, url, path, es_playlist=False, pl_start=None, pl_end=None):
+    def descargar(self, url, path, format_type="video", es_playlist=False, playlist_title="", modo_estricto=True):
         if not url or not path: return self._emit_error("Faltan datos")
         if not self.ffmpeg_manager.is_installed():
             ok, msg = self.ffmpeg_manager.install_ffmpeg(self._emit_status)
             if not ok: return self._emit_error(msg)
         
-        self._emit_status("Iniciando motor...")
         self._emit_progress(0.0)
-        
-        # Opciones ROBUSTAS para descarga
+
         ydl_opts = {
-            'outtmpl': os.path.join(path, '%(title)s.%(ext)s'),
             'progress_hooks': [self.hook_progreso],
             'restrictfilenames': True,
-            'noplaylist': not es_playlist,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-            'merge_output_format': 'mp4',
             'ignoreerrors': True,
             'logger': MyLogger(self._emit_status),
             'socket_timeout': 15,
             'retries': 5,
         }
-        
+
+        if format_type == "audio":
+            ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio'
+            ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a', 'preferredquality': '192'}]
+        else:
+            ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
+            ydl_opts['merge_output_format'] = 'mp4'
+
         ffmpeg_loc = self.ffmpeg_manager.get_ffmpeg_path()
         if ffmpeg_loc: ydl_opts['ffmpeg_location'] = ffmpeg_loc
 
-        if es_playlist:
-            ydl_opts['outtmpl'] = os.path.join(path, self.playlist_title, '%(title)s.%(ext)s')
+        if modo_estricto:
+            self._emit_status("Iniciando Modo Estricto (Optimizado)...")
+            libreria_maestra = os.path.join(path, "Libreria_Maestra")
+            carpeta_playlists = os.path.join(path, "Playlists")
+            os.makedirs(libreria_maestra, exist_ok=True)
+            os.makedirs(carpeta_playlists, exist_ok=True)
+            self.ruta_catalogo_actual = os.path.join(libreria_maestra, "Indice_Auditoria.csv")
+            
+            self._cargar_catalogo_en_ram()
+
+            if es_playlist:
+                self._emit_status("Construyendo M3U8...")
+                self._generar_m3u8(playlist_title, path, format_type)
+                ydl_opts['noplaylist'] = False
+            else:
+                ydl_opts['noplaylist'] = True
+
+            ydl_opts['outtmpl'] = os.path.join(libreria_maestra, '%(id)s.%(ext)s')
+            ydl_opts['download_archive'] = os.path.join(libreria_maestra, 'historial_descargas.txt')
+            destino_final_limpieza = libreria_maestra
+            
+        else:
+            self.ruta_catalogo_actual = None 
+            self._emit_status("Iniciando Modo Estándar...")
+            ydl_opts['noplaylist'] = False if es_playlist else True
+            
+            if es_playlist:
+                carpeta_destino = os.path.join(path, playlist_title)
+                ydl_opts['outtmpl'] = os.path.join(carpeta_destino, '%(title)s.%(ext)s')
+                destino_final_limpieza = carpeta_destino
+            else:
+                ydl_opts['outtmpl'] = os.path.join(path, '%(title)s.%(ext)s')
+                destino_final_limpieza = path
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            self._emit_status("¡Completado!")
+            self._emit_status("¡Proceso Finalizado!")
+            self._emit_progress(1.0)
             self.guardar_configuracion(path)
             if self.on_finish: self.on_finish()
         except DownloadCancelledError:
-            self._emit_status("Cancelado.")
+            self._emit_status("Operación abortada por el usuario.")
         except Exception as e:
-            self._emit_error(f"Error crítico: {str(e)}")
+            self._emit_error(f"Error crítico en motor: {str(e)}")
         finally:
-            self._limpiar_archivos_temporales(path, es_playlist, self.playlist_title)
+            if os.path.exists(destino_final_limpieza):
+                for archivo in os.listdir(destino_final_limpieza):
+                    if archivo.endswith(".part") or archivo.endswith(".ytdl"):
+                        try: os.remove(os.path.join(destino_final_limpieza, archivo))
+                        except: pass
