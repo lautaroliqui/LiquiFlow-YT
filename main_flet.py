@@ -1,16 +1,17 @@
 import flet as ft
 import threading
+import tkinter as tk
+from tkinter import filedialog
 from app_logic import AppLogic
 
 def main(page: ft.Page):
-    page.title = "YT Optimizer Downloader (Flet v0.82.2)"
-    page.window_width = 700 # Restaurado al ancho original
-    page.window_height = 650
+    page.title = "Librería Maestra YT"
+    page.window_width = 750 
+    page.window_height = 650 
     page.theme_mode = ft.ThemeMode.SYSTEM
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     
-    current_path = ""
     temp_playlist_data = {"url": "", "path": "", "title": ""}
 
     def actualizar_estado(msg):
@@ -22,7 +23,7 @@ def main(page: ft.Page):
         progress_bar.update()
 
     def reportar_error(msg):
-        page.snack_bar = ft.SnackBar(ft.Text(f"ERROR: {msg}"), bgcolor=ft.Colors.RED, duration=5000)
+        page.snack_bar = ft.SnackBar(ft.Text(f"AVISO: {msg}"), bgcolor=ft.Colors.RED, duration=8000)
         page.snack_bar.open = True
         page.update()
         reset_ui()
@@ -43,6 +44,7 @@ def main(page: ft.Page):
         progress_bar.value = 0
         dropdown_formato.disabled = False
         switch_modo.disabled = False
+        btn_exportar.disabled = False
         page.update()
 
     cancel_event = threading.Event()
@@ -56,25 +58,56 @@ def main(page: ft.Page):
 
     config_path = logic.last_path or logic.get_user_videos_dir()
 
-    def al_seleccionar_carpeta(e):
-        if e.path:
-            input_ruta.value = e.path
+    # --- BYPASS NATIVO DE WINDOWS ---
+    def abrir_selector_carpeta(e):
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        ruta = filedialog.askdirectory(parent=root, title="Seleccionar Directorio Raíz")
+        root.destroy()
+        
+        if ruta:
+            input_ruta.value = ruta
             input_ruta.update()
-            nonlocal current_path
-            current_path = e.path
 
-    def abrir_selector(e):
-        if selector_archivos not in page.overlay:
-            page.overlay.append(selector_archivos)
-            page.update()
-        selector_archivos.get_directory_path()
+    def abrir_selector_m3u8(e):
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        archivo = filedialog.askopenfilename(
+            parent=root,
+            title="Seleccionar playlist (.m3u8)",
+            filetypes=[("M3U8 Playlist", "*.m3u8")]
+        )
+        root.destroy()
+    
+        if archivo:
+            exportar_playlist(archivo)
+    
+    def exportar_playlist(ruta_m3u8):
+        if not ruta_m3u8:
+            reportar_error("No se seleccionó ninguna playlist")
+            return
 
+        btn_exportar.disabled = True
+        btn_exportar.text = "Exportando..."
+        progress_bar.value = 0
+        page.update()
+
+        cancel_event.clear()
+
+        threading.Thread(
+            target=lambda: logic.exportar_playlist_a_staging(ruta_m3u8),
+            daemon=True
+        ).start()
+
+    # --- Lógica de Procesamiento ---
     def iniciar_proceso(e):
         url = input_url.value
         path = input_ruta.value
         
         if not url or not path:
-            reportar_error("Faltan datos de URL o Ruta")
+            reportar_error("Faltan datos de URL o Ruta Principal")
             return
 
         btn_descargar.disabled = True
@@ -99,13 +132,17 @@ def main(page: ft.Page):
 
     def verificar_y_descargar(url, path):
         try:
-            is_playlist, num_videos, pl_title = logic.check_url_type_blocking(url)
+            tipo, num_videos, pl_title = logic.check_url_type_blocking(url)
             
             if cancel_event.is_set():
                 reset_ui()
                 return
 
-            if is_playlist:
+            if tipo == "error":
+                reset_ui()
+                return
+                
+            elif tipo == "playlist":
                 temp_playlist_data["url"] = url
                 temp_playlist_data["path"] = path
                 temp_playlist_data["title"] = pl_title
@@ -150,14 +187,13 @@ def main(page: ft.Page):
         reset_ui()
         actualizar_estado("Operación cancelada.")
 
+    # --- Construcción de la UI ---
     lbl_titulo = ft.Text("Librería Maestra YT", size=30, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE)
     
     input_url = ft.TextField(label="URL de YouTube", prefix_icon=ft.Icons.LINK, width=500)
-    selector_archivos = ft.FilePicker()
-    selector_archivos.on_result = al_seleccionar_carpeta
-
+    
     input_ruta = ft.TextField(value=config_path, label="Directorio Raíz", prefix_icon=ft.Icons.FOLDER, width=400, read_only=True)
-    btn_carpeta = ft.Button("Examinar", icon=ft.Icons.FOLDER_OPEN, on_click=abrir_selector)
+    btn_carpeta = ft.Button("Examinar", icon=ft.Icons.FOLDER_OPEN, on_click=abrir_selector_carpeta)
 
     dropdown_formato = ft.Dropdown(
         label="Formato",
@@ -177,9 +213,22 @@ def main(page: ft.Page):
 
     btn_descargar = ft.Button("DESCARGAR", icon=ft.Icons.DOWNLOAD, on_click=iniciar_proceso, bgcolor=ft.Colors.BLUE, color=ft.Colors.WHITE, width=200, height=50)
     btn_cancelar = ft.Button("CANCELAR", icon=ft.Icons.CANCEL, on_click=cancelar_proceso, bgcolor="#500000", color=ft.Colors.WHITE, width=150, height=50, disabled=True)
+    btn_exportar = ft.Button(
+        "EXPORTAR A MÓVIL",
+        icon=ft.Icons.PHONE_ANDROID,
+        on_click=abrir_selector_m3u8,
+        bgcolor=ft.Colors.ORANGE,
+        color=ft.Colors.WHITE,
+        width=220,
+        height=50
+    )
     
-    fila_botones_principales = ft.Row([btn_descargar, btn_cancelar], alignment=ft.MainAxisAlignment.CENTER, spacing=20)
-
+    fila_botones_principales = ft.Row(
+        [btn_descargar, btn_exportar, btn_cancelar],
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=20
+    )
+    
     lbl_confirmacion = ft.Text("", size=16, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
     btn_si_playlist = ft.Button("Sí, integrar", bgcolor=ft.Colors.GREEN, color=ft.Colors.WHITE, on_click=confirmar_playlist_si)
     btn_no_playlist = ft.Button("No, cancelar", style=ft.ButtonStyle(color=ft.Colors.RED), on_click=confirmar_playlist_no)
@@ -191,13 +240,14 @@ def main(page: ft.Page):
 
     page.add(
         ft.Column([
-            ft.Container(height=10),
-            lbl_titulo, ft.Container(height=10),
+            ft.Container(height=20),
+            lbl_titulo, ft.Container(height=20),
             input_url,
             ft.Row([input_ruta, btn_carpeta], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Row([dropdown_formato, switch_modo], alignment=ft.MainAxisAlignment.CENTER, spacing=30),
             ft.Container(height=10),
-            fila_botones_principales, panel_confirmacion, ft.Container(height=10),
+            ft.Row([dropdown_formato, switch_modo], alignment=ft.MainAxisAlignment.CENTER, spacing=30),
+            ft.Container(height=20),
+            fila_botones_principales, panel_confirmacion, ft.Container(height=20),
             progress_bar, txt_estado
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     )

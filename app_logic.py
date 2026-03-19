@@ -20,14 +20,18 @@ class MyLogger:
         self.status_callback = status_callback
 
     def debug(self, msg): pass
+        
     def info(self, msg): pass
     
-    def warning(self, msg):
-        if "unavailable" in msg or "hidden" in msg: pass
+    def warning(self, msg): pass
         
     def error(self, msg):
+        print(f"[YT-DLP ERROR] {msg}")
         if self.status_callback:
-            self.status_callback(f"Error de motor: {msg}")
+            if "Sign in" in msg or "Private video" in msg:
+                self.status_callback("Error: Video privado/restringido. No descargable en modo público.")
+            else:
+                self.status_callback(f"Error de motor: {msg}")
 
 class FFmpegManager:
     FFMPEG_URL = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -122,28 +126,29 @@ class AppLogic:
         self.current_entries = []
         
         try:
+            # RIGOR: Purgado de disfraces móviles que estrangulaban la resolución
             ydl_opts = {
-                'quiet': True, 'extract_flat': True, 'ignoreerrors': True,
+                'extract_flat': True, 'ignoreerrors': False,
                 'logger': my_logger, 'no_warnings': True, 'socket_timeout': 10,
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result_info = ydl.extract_info(url, download=False)
             
-            if not result_info: return False, 0, ""
+            if not result_info: return "error", 0, ""
 
             if result_info.get('_type') == 'playlist' or 'entries' in result_info:
                 entries = result_info.get('entries', [])
                 self.current_entries = [e for e in entries if e and e.get('title') and '[Private video]' not in e.get('title') and '[Deleted video]' not in e.get('title')]
                 count = len(self.current_entries)
                 playlist_title = self._clean_ansi(result_info.get('title', 'Playlist')).replace('/', '_').replace('\\', '_')
-                return True, count, playlist_title
+                return "playlist", count, playlist_title
             else:
-                return False, 0, result_info.get('title', 'Video')
+                return "video", 0, result_info.get('title', 'Video')
 
         except Exception as e:
-            self._emit_error(f"Error verificando: {str(e)}")
-            return False, 0, ""
+            self._emit_error(f"Error crítico en validación: {str(e)}")
+            return "error", 0, ""
 
     def hook_progreso(self, d):
         if self.cancel_event and self.cancel_event.is_set():
@@ -183,6 +188,7 @@ class AppLogic:
         
         self._emit_progress(0.0)
 
+        # RIGOR: Opciones limpias. Cero cookies, cero disfraces, calidad pura.
         ydl_opts = {
             'progress_hooks': [self.hook_progreso],
             'restrictfilenames': True,
@@ -192,6 +198,7 @@ class AppLogic:
             'retries': 5,
         }
 
+        # TU CONFIGURACIÓN EXACTA PARA MÁXIMA CALIDAD
         if format_type == "audio":
             ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio'
             ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a', 'preferredquality': '192'}]
@@ -253,3 +260,69 @@ class AppLogic:
                     if archivo.endswith(".part") or archivo.endswith(".ytdl"):
                         try: os.remove(os.path.join(destino_final_limpieza, archivo))
                         except: pass
+
+    def exportar_playlist_a_staging(self, ruta_m3u8):
+        try:
+            if not os.path.exists(ruta_m3u8):
+                return self._emit_error("El archivo .m3u8 no existe")
+
+            self._emit_status("Leyendo playlist...")
+
+            base_dir = os.path.dirname(os.path.dirname(ruta_m3u8))
+            libreria_origen = os.path.join(base_dir, "Libreria_Maestra")
+
+            staging_root = os.path.join(os.path.expanduser("~"), "Desktop", "Exportacion_Movil")
+            staging_lib = os.path.join(staging_root, "Libreria_Maestra")
+            staging_playlists = os.path.join(staging_root, "Playlists")
+
+            os.makedirs(staging_lib, exist_ok=True)
+            os.makedirs(staging_playlists, exist_ok=True)
+
+            # --- 1. Extraer IDs ---
+            ids = []
+            with open(ruta_m3u8, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("../Libreria_Maestra/"):
+                        nombre_archivo = os.path.basename(line.strip())
+                        vid_id = os.path.splitext(nombre_archivo)[0]
+                        ext = os.path.splitext(nombre_archivo)[1]
+                        ids.append((vid_id, ext))
+
+            total = len(ids)
+            copiados = 0
+
+            self._emit_status(f"Detectados {total} archivos...")
+
+            # --- 2. Copiar con deduplicación ---
+            for i, (vid_id, ext) in enumerate(ids):
+                if self.cancel_event and self.cancel_event.is_set():
+                    raise DownloadCancelledError()
+
+                origen = os.path.join(libreria_origen, f"{vid_id}{ext}")
+                destino = os.path.join(staging_lib, f"{vid_id}{ext}")
+
+                if not os.path.exists(origen):
+                    self._emit_status(f"Falta archivo: {vid_id}")
+                    continue
+
+                if not os.path.exists(destino):
+                    shutil.copy2(origen, destino)
+                    copiados += 1
+
+                self._emit_progress((i + 1) / total)
+
+            # --- 3. Copiar playlist ---
+            nombre_playlist = os.path.basename(ruta_m3u8)
+            destino_playlist = os.path.join(staging_playlists, nombre_playlist)
+            shutil.copy2(ruta_m3u8, destino_playlist)
+
+            self._emit_status(f"Exportación completa ({copiados} nuevos archivos)")
+            self._emit_progress(1.0)
+
+            if self.on_finish:
+                self.on_finish()
+
+        except DownloadCancelledError:
+            self._emit_status("Exportación cancelada.")
+        except Exception as e:
+            self._emit_error(f"Error en exportación: {str(e)}")
