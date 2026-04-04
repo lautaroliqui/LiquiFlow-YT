@@ -211,7 +211,7 @@ class AppLogic:
             return videos_exitosos
 
     # --- FASE 3: DESCARGA AUTÓNOMA Y ESCÁNER REGEX ---
-    def descargar(self, url, path, format_type="video", es_playlist=False, playlist_title="", modo_estricto=True):
+    def descargar(self, url, path, format_type="video", resolucion="max", estricto_res=False, es_playlist=False, playlist_title="", modo_estricto=True):
         if not url or not path: return self._emit_error("Faltan datos")
         
         # Doble check de dependencias
@@ -234,7 +234,12 @@ class AppLogic:
         if format_type == "audio":
             cmd.extend(['-f', 'bestaudio[ext=m4a]/bestaudio', '-x', '--audio-format', 'm4a', '--audio-quality', '192K'])
         else:
-            cmd.extend(['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4'])
+            if resolucion == "max":
+                cmd.extend(['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4'])
+            else:
+                # DEGRADACIÓN GRÁCIL SIEMPRE: Busca el tope máximo indicado, si no existe, baja al siguiente.
+                selector = f'bestvideo[height<={resolucion}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={resolucion}]+bestaudio/best'
+                cmd.extend(['-f', selector, '--merge-output-format', 'mp4'])
 
         ffmpeg_loc = self.dep_manager.get_ffmpeg_path()
         if ffmpeg_loc: 
@@ -315,6 +320,8 @@ class AppLogic:
                     self._emit_status("Omitiendo: El archivo ya existe en el disco.")
                 elif "Sign in" in line_clean or "Private video" in line_clean:
                     self._emit_status("Aviso: Video omitido (Privado/Restringido).")
+                elif "Requested format is not available" in line_clean:
+                    self._emit_status("Aviso: Omitido (No alcanza la resolución exigida).")
 
                 # Actualización de Catálogo si vemos el ID
                 match_id = re.search(r'\[download\] Destination: .*\\(.*?)\.(mp4|m4a)', line_clean)

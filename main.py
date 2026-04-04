@@ -9,7 +9,7 @@ class YtDownloaderApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Librería Maestra YT")
-        self.geometry("750x600")
+        self.geometry("800x600")
         self.configure(padx=25, pady=25)
         sv_ttk.set_theme("dark")
 
@@ -32,72 +32,81 @@ class YtDownloaderApp(tk.Tk):
         self.crear_interfaz()
 
     def crear_interfaz(self):
-
-        # Estilo general
-        style = ttk.Style()
-
         # Título
-        lbl_titulo = tk.Label(self, text="Librería Maestra YT", font=("Segoe UI", 22, "bold"), fg="#0052cc")
-        lbl_titulo.pack(pady=(0, 25))
+        lbl_titulo = tk.Label(self, text="Librería Maestra YT", font=("Segoe UI", 24, "bold"), fg="#4da6ff", bg=self.cget('bg'))
+        lbl_titulo.pack(pady=(10, 25))
+
+        # Contenedor principal con márgenes internos
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20)
 
         # Fila URL
-        frame_url = ttk.Frame(self)
-        frame_url.pack(fill=tk.X, pady=8)
-        ttk.Label(frame_url, text="URL de YouTube:", width=15, font=("Segoe UI", 10)).pack(side=tk.LEFT)
+        frame_url = ttk.Frame(main_frame)
+        frame_url.pack(fill=tk.X, pady=10)
+        ttk.Label(frame_url, text="URL de YouTube:", width=16, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
         self.var_url = tk.StringVar()
         ttk.Entry(frame_url, textvariable=self.var_url, font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
         # Fila Directorio
-        frame_dir = ttk.Frame(self)
-        frame_dir.pack(fill=tk.X, pady=8)
-        ttk.Label(frame_dir, text="Directorio Raíz:", width=15, font=("Segoe UI", 10)).pack(side=tk.LEFT)
+        frame_dir = ttk.Frame(main_frame)
+        frame_dir.pack(fill=tk.X, pady=10)
+        ttk.Label(frame_dir, text="Directorio Raíz:", width=16, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
         self.var_ruta = tk.StringVar(value=self.config_path)
         ttk.Entry(frame_dir, textvariable=self.var_ruta, state='readonly', font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         ttk.Button(frame_dir, text="Examinar", command=self.examinar_carpeta).pack(side=tk.LEFT)
 
         # Fila Opciones
-        frame_ops = ttk.Frame(self)
+        frame_ops = ttk.Frame(main_frame)
         frame_ops.pack(fill=tk.X, pady=20)
         
-        ttk.Label(frame_ops, text="Formato:", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 5))
-        self.var_formato = tk.StringVar(value="audio")
-        combo = ttk.Combobox(frame_ops, textvariable=self.var_formato, values=["audio", "video"], state="readonly", width=15, font=("Segoe UI", 10))
-        combo.pack(side=tk.LEFT, padx=5)
+        ttk.Label(frame_ops, text="Formato:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+        self.var_formato = tk.StringVar(value="video")
+        combo_formato = ttk.Combobox(frame_ops, textvariable=self.var_formato, values=["audio", "video"], state="readonly", width=10, font=("Segoe UI", 10))
+        combo_formato.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(frame_ops, text="Calidad Max:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(25, 5))
+        self.var_resolucion = tk.StringVar(value="max")
+        combo_res = ttk.Combobox(frame_ops, textvariable=self.var_resolucion, values=["max", "2160", "1440", "1080", "720", "480"], state="readonly", width=8, font=("Segoe UI", 10))
+        combo_res.pack(side=tk.LEFT, padx=5)
         
         self.var_estricto = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frame_ops, text="Librería Estricta (Carpetas Ordenadas)", variable=self.var_estricto).pack(side=tk.LEFT, padx=30)
+        ttk.Checkbutton(frame_ops, text="Librería Estricta (Avanzado)", variable=self.var_estricto).pack(side=tk.LEFT, padx=30)
 
-        # Fila Botones Principales
-        self.frame_botones = tk.Frame(self)
-        self.frame_botones.pack(pady=20)
+        # Separador visual
+        ttk.Separator(main_frame, orient='horizontal').pack(fill=tk.X, pady=15)
+
+        # Fila Botones Principales (AHORA USANDO TTK PURO Y ESTILOS)
+        self.frame_botones = ttk.Frame(main_frame)
+        self.frame_botones.pack(pady=10)
         
-        self.btn_descargar = tk.Button(self.frame_botones, text="DESCARGAR", bg="#0078D7", fg="white", font=("Segoe UI", 10, "bold"), width=16, height=2, relief=tk.FLAT, command=self.iniciar_proceso)
+        # Usamos Accent.TButton para que brille con el color del SO
+        self.btn_descargar = ttk.Button(self.frame_botones, text="DESCARGAR", style="Accent.TButton", command=self.iniciar_proceso, width=18)
         self.btn_descargar.pack(side=tk.LEFT, padx=10)
         
-        self.btn_exportar = tk.Button(self.frame_botones, text="EXPORTAR A MÓVIL", bg="#D83B01", fg="white", font=("Segoe UI", 10, "bold"), width=20, height=2, relief=tk.FLAT, command=self.exportar_m3u8)
+        self.btn_exportar = ttk.Button(self.frame_botones, text="EXPORTAR A MÓVIL", command=self.exportar_m3u8, width=22)
         self.btn_exportar.pack(side=tk.LEFT, padx=10)
         
-        self.btn_cancelar = tk.Button(self.frame_botones, text="CANCELAR", bg="#A6A6A6", fg="white", font=("Segoe UI", 10, "bold"), width=14, height=2, relief=tk.FLAT, state=tk.DISABLED, command=self.cancelar_proceso)
+        self.btn_cancelar = ttk.Button(self.frame_botones, text="CANCELAR", command=self.cancelar_proceso, width=15, state=tk.DISABLED)
         self.btn_cancelar.pack(side=tk.LEFT, padx=10)
 
         # Panel Confirmación Playlist (Oculto al inicio)
-        self.frame_confirmacion = tk.Frame(self)
+        self.frame_confirmacion = ttk.Frame(main_frame)
         
-        self.lbl_confirmacion = tk.Label(self.frame_confirmacion, text="", font=("Segoe UI", 11, "bold"), justify=tk.CENTER)
+        self.lbl_confirmacion = tk.Label(self.frame_confirmacion, text="", font=("Segoe UI", 11), fg="#e6e6e6", bg=self.cget('bg'), justify=tk.CENTER)
         self.lbl_confirmacion.pack(pady=10)
         
-        frame_btns_conf = tk.Frame(self.frame_confirmacion)
+        frame_btns_conf = ttk.Frame(self.frame_confirmacion)
         frame_btns_conf.pack()
-        tk.Button(frame_btns_conf, text="Sí, integrar", bg="#107C10", fg="white", font=("Segoe UI", 10, "bold"), width=15, relief=tk.FLAT, command=self.confirmar_si).pack(side=tk.LEFT, padx=10)
-        tk.Button(frame_btns_conf, text="No, cancelar", bg="#E81123", fg="white", font=("Segoe UI", 10, "bold"), width=15, relief=tk.FLAT, command=self.confirmar_no).pack(side=tk.LEFT, padx=10)
+        ttk.Button(frame_btns_conf, text="Sí, integrar", style="Accent.TButton", command=self.confirmar_si, width=15).pack(side=tk.LEFT, padx=10)
+        ttk.Button(frame_btns_conf, text="No, cancelar", command=self.confirmar_no, width=15).pack(side=tk.LEFT, padx=10)
 
         # Barra de Progreso y Estado
         self.var_progreso = tk.DoubleVar(value=0)
-        self.barra_progreso = ttk.Progressbar(self, variable=self.var_progreso, maximum=1.0, length=650)
-        self.barra_progreso.pack(pady=(25, 10))
+        self.barra_progreso = ttk.Progressbar(main_frame, variable=self.var_progreso, maximum=1.0)
+        self.barra_progreso.pack(fill=tk.X, pady=(30, 10))
         
-        self.var_estado = tk.StringVar(value="Listo.")
-        tk.Label(self, textvariable=self.var_estado, font=("Segoe UI", 10), fg="#666666").pack()
+        self.var_estado = tk.StringVar(value="Sistema en espera...")
+        tk.Label(main_frame, textvariable=self.var_estado, font=("Segoe UI", 10, "italic"), fg="#a6a6a6", bg=self.cget('bg')).pack()
 
     # --- Lógica de Interacción ---
     def examinar_carpeta(self):
@@ -155,10 +164,10 @@ class YtDownloaderApp(tk.Tk):
 
     def reset_ui(self):
         self.frame_confirmacion.pack_forget()
-        self.frame_botones.pack(pady=20)
+        self.frame_botones.pack(pady=10)
         
         self.btn_descargar.config(state=tk.NORMAL, text="DESCARGAR")
-        self.btn_cancelar.config(state=tk.DISABLED, bg="#A6A6A6")
+        self.btn_cancelar.config(state=tk.DISABLED)
         self.btn_exportar.config(state=tk.NORMAL, text="EXPORTAR A MÓVIL")
         
         self.var_progreso.set(0)
@@ -172,9 +181,9 @@ class YtDownloaderApp(tk.Tk):
             messagebox.showwarning("Faltan Datos", "Por favor, ingresa una URL y selecciona una ruta de destino.")
             return
 
-        self.btn_descargar.config(state=tk.DISABLED, text="Verificando...")
+        self.btn_descargar.config(state=tk.DISABLED, text="Procesando...")
         self.btn_exportar.config(state=tk.DISABLED)
-        self.btn_cancelar.config(state=tk.NORMAL, bg="#E81123")
+        self.btn_cancelar.config(state=tk.NORMAL)
         
         self.cancel_event.clear()
         threading.Thread(target=self.verificar_y_descargar, args=(url, path), daemon=True).start()
@@ -204,7 +213,9 @@ class YtDownloaderApp(tk.Tk):
                 self.logic.descargar(
                     url=url, 
                     path=path, 
-                    format_type=self.var_formato.get(), 
+                    format_type=self.var_formato.get(),
+                    resolucion=self.var_resolucion.get(),
+                    estricto_res=self.var_res_estricta.get(),
                     es_playlist=False, 
                     modo_estricto=self.var_estricto.get()
                 )
@@ -224,12 +235,14 @@ class YtDownloaderApp(tk.Tk):
         
         threading.Thread(
             target=lambda: self.logic.descargar(
-                self.temp_playlist_data["url"], 
-                self.temp_playlist_data["path"], 
-                self.var_formato.get(), 
-                True, 
-                self.temp_playlist_data["title"], 
-                self.var_estricto.get()
+                url=self.temp_playlist_data["url"], 
+                path=self.temp_playlist_data["path"], 
+                format_type=self.var_formato.get(),
+                resolucion=self.var_resolucion.get(),
+                estricto_res=self.var_res_estricta.get(),
+                es_playlist=True, 
+                playlist_title=self.temp_playlist_data["title"], 
+                modo_estricto=self.var_estricto.get()
             ), daemon=True
         ).start()
 
