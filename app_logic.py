@@ -1,4 +1,3 @@
-import yt_dlp
 import os
 import configparser
 import sys
@@ -6,8 +5,9 @@ import re
 import shutil
 import zipfile
 import requests
+import subprocess
+import json
 from io import BytesIO
-import threading
 
 CONFIG_FILE = "config.ini"
 config = configparser.ConfigParser()
@@ -15,55 +15,67 @@ ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 class DownloadCancelledError(Exception): pass
 
-class MyLogger:
-    def __init__(self, status_callback=None):
-        self.status_callback = status_callback
-
-    def debug(self, msg): pass
-        
-    def info(self, msg): pass
-    
-    def warning(self, msg): pass
-        
-    def error(self, msg):
-        print(f"[YT-DLP ERROR] {msg}")
-        if "Sign in" in msg or "Private video" in msg:
-            if self.status_callback:
-                self.status_callback("Aviso: Video omitido (Privado/Restringido).")
-        elif self.status_callback:
-            self.status_callback(f"Error de motor: {msg}")
-
-class FFmpegManager:
+# --- FASE 1: GESTOR DE BINARIOS INDEPENDIENTES (AUTO-UPDATER) ---
+class DependencyManager:
     FFMPEG_URL = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
     
     def __init__(self):
         self.bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bin')
         self.ffmpeg_exe = os.path.join(self.bin_dir, 'ffmpeg.exe')
         self.ffprobe_exe = os.path.join(self.bin_dir, 'ffprobe.exe')
+        self.ytdlp_exe = os.path.join(self.bin_dir, 'yt-dlp.exe')
 
     def get_ffmpeg_path(self):
         return self.bin_dir if os.path.exists(self.ffmpeg_exe) else None
 
-    def is_installed(self):
-        return os.path.exists(self.ffmpeg_exe) or shutil.which("ffmpeg") is not None
+    def check_and_update_all(self, status_callback=None):
+        if not os.path.exists(self.bin_dir): 
+            os.makedirs(self.bin_dir)
 
-    def install_ffmpeg(self, status_callback=None):
-        try:
-            if not os.path.exists(self.bin_dir): os.makedirs(self.bin_dir)
-            if status_callback: status_callback("Descargando FFmpeg...")
-            response = requests.get(self.FFMPEG_URL, stream=True)
-            response.raise_for_status()
-            if status_callback: status_callback("Extrayendo archivos...")
-            with zipfile.ZipFile(BytesIO(response.content)) as zf:
-                for file in zf.namelist():
-                    filename = os.path.basename(file)
-                    if filename.lower() == "ffmpeg.exe":
-                        with open(self.ffmpeg_exe, 'wb') as f_out: f_out.write(zf.read(file))
-                    elif filename.lower() == "ffprobe.exe":
-                        with open(self.ffprobe_exe, 'wb') as f_out: f_out.write(zf.read(file))
-            return True, "Instalación completada."
-        except Exception as e:
-            return False, f"Error descargando componentes: {str(e)}"
+        # 1. Auditoría de yt-dlp.exe
+        if not os.path.exists(self.ytdlp_exe):
+            if status_callback: status_callback("Descargando motor principal yt-dlp.exe...")
+            try:
+                r = requests.get(self.YTDLP_URL, stream=True)
+                r.raise_for_status()
+                with open(self.ytdlp_exe, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            except Exception as e:
+                return False, f"Error descargando motor: {str(e)}"
+        else:
+            if status_callback: status_callback("Buscando actualizaciones del motor de extracción...")
+            try:
+                # RIGOR: Forzamos la auto-actualización del binario para evadir parches de YouTube
+                subprocess.run(
+                    [self.ytdlp_exe, '-U'], 
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    capture_output=True,
+                    timeout=15
+                )
+            except Exception:
+                pass # Si no hay internet o falla el update, omitimos y usamos la versión local
+
+        # 2. Auditoría de FFmpeg
+        if not os.path.exists(self.ffmpeg_exe):
+            if status_callback: status_callback("Descargando procesador FFmpeg...")
+            try:
+                response = requests.get(self.FFMPEG_URL, stream=True)
+                response.raise_for_status()
+                if status_callback: status_callback("Extrayendo FFmpeg...")
+                with zipfile.ZipFile(BytesIO(response.content)) as zf:
+                    for file in zf.namelist():
+                        filename = os.path.basename(file)
+                        if filename.lower() == "ffmpeg.exe":
+                            with open(self.ffmpeg_exe, 'wb') as f_out: f_out.write(zf.read(file))
+                        elif filename.lower() == "ffprobe.exe":
+                            with open(self.ffprobe_exe, 'wb') as f_out: f_out.write(zf.read(file))
+            except Exception as e:
+                return False, f"Error descargando FFmpeg: {str(e)}"
+
+        return True, "Dependencias listas."
+
 
 class AppLogic:
     def __init__(self, on_status_change=None, on_progress=None, on_error=None, on_finish=None, cancel_event=None):
@@ -72,12 +84,12 @@ class AppLogic:
         self.on_error = on_error
         self.on_finish = on_finish
         self.cancel_event = cancel_event
-        self.ffmpeg_manager = FFmpegManager()
+        self.dep_manager = DependencyManager()
         self.last_path = self.cargar_configuracion()
         self.current_entries = [] 
         self.ruta_catalogo_actual = None 
         self.ids_en_ram = set()
-        self.total_raw_videos = 0 # RIGOR: Almacena el número absoluto reportado por YouTube
+        self.total_raw_videos = 0 
 
     def _emit_status(self, msg):
         if self.on_status_change: self.on_status_change(msg)
@@ -114,36 +126,56 @@ class AppLogic:
 
     def _registrar_en_catalogo(self, vid_id, titulo):
         if not self.ruta_catalogo_actual: return
-        
         if vid_id not in self.ids_en_ram:
             self.ids_en_ram.add(vid_id)
             with open(self.ruta_catalogo_actual, 'a', encoding='utf-8') as f:
                 titulo_seguro = str(titulo).replace(',', ' -').replace('\n', ' ')
                 f.write(f"{vid_id},{titulo_seguro}\n")
 
+    # --- FASE 2: EXTRACCIÓN MEDIANTE SUBPROCESO ---
     def check_url_type_blocking(self, url):
-        self._emit_status("Analizando link (Extrayendo Metadatos)...")
-        my_logger = MyLogger(self._emit_status)
+        self._emit_status("Analizando link e inyectando dependencias...")
+        
+        ok, msg = self.dep_manager.check_and_update_all(self._emit_status)
+        if not ok:
+            self._emit_error(msg)
+            return "error", 0, ""
+
+        self._emit_status("Extrayendo Metadatos (Subproceso)...")
         self.current_entries = []
         
         try:
-            ydl_opts = {
-                'extract_flat': True, 'ignoreerrors': False,
-                'logger': my_logger, 'no_warnings': True, 'socket_timeout': 10,
-            }
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                result_info = ydl.extract_info(url, download=False)
+            # Ordenamos al binario que nos escupa un JSON gigante con la info
+            cmd = [
+                self.dep_manager.ytdlp_exe, 
+                '-J', # Dump JSON
+                '--flat-playlist', 
+                '--no-warnings', 
+                url
+            ]
             
-            if not result_info: return "error", 0, ""
+            process = subprocess.run(
+                cmd, 
+                capture_output=True, 
+                text=True, 
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                encoding='utf-8'
+            )
+
+            if process.returncode != 0:
+                # Filtramos el mensaje de error para que sea amigable
+                err_msg = process.stderr
+                if "Sign in" in err_msg or "Private video" in err_msg:
+                    self._emit_error("El video es privado o tiene restricción de edad.")
+                else:
+                    self._emit_error(f"Error extrayendo datos del link.")
+                return "error", 0, ""
+
+            result_info = json.loads(process.stdout)
 
             if result_info.get('_type') == 'playlist' or 'entries' in result_info:
                 entries = result_info.get('entries', [])
-                
-                # Capturamos el 100% de la playlist (incluyendo los borrados/ocultos)
                 self.total_raw_videos = len(entries)
-                
-                # Filtramos los borrados para no estrellar el motor de descarga
                 self.current_entries = [e for e in entries if e and e.get('title') and '[Private video]' not in e.get('title') and '[Deleted video]' not in e.get('title')]
                 count = len(self.current_entries)
                 playlist_title = self._clean_ansi(result_info.get('title', 'Playlist')).replace('/', '_').replace('\\', '_')
@@ -153,24 +185,8 @@ class AppLogic:
                 return "video", 0, result_info.get('title', 'Video')
 
         except Exception as e:
-            self._emit_error(f"Error crítico en validación: {str(e)}")
+            self._emit_error(f"Error crítico en validación JSON: {str(e)}")
             return "error", 0, ""
-
-    def hook_progreso(self, d):
-        if self.cancel_event and self.cancel_event.is_set():
-            raise DownloadCancelledError("Cancelado")
-        
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate')
-            downloaded = d.get('downloaded_bytes')
-            if total and downloaded: self._emit_progress(downloaded / total)
-            self._emit_status(f"Descargando: {self._clean_ansi(d.get('_percent_str', ''))}")
-        elif d['status'] == 'finished':
-            self._emit_status("Procesando conversión final...")
-            
-            info = d.get('info_dict', {})
-            if info and 'id' in info and 'title' in info:
-                self._registrar_en_catalogo(info['id'], info['title'])
 
     def _generar_m3u8(self, playlist_title, path, format_type):
         carpeta_playlists = os.path.join(path, "Playlists")
@@ -192,34 +208,37 @@ class AppLogic:
                     f.write(f"{ruta_relativa}\n")
                     videos_exitosos += 1
             
-            return videos_exitosos # Devolvemos el conteo exacto para el reporte final
+            return videos_exitosos
 
+    # --- FASE 3: DESCARGA AUTÓNOMA Y ESCÁNER REGEX ---
     def descargar(self, url, path, format_type="video", es_playlist=False, playlist_title="", modo_estricto=True):
         if not url or not path: return self._emit_error("Faltan datos")
-        if not self.ffmpeg_manager.is_installed():
-            ok, msg = self.ffmpeg_manager.install_ffmpeg(self._emit_status)
-            if not ok: return self._emit_error(msg)
+        
+        # Doble check de dependencias
+        ok, msg = self.dep_manager.check_and_update_all(self._emit_status)
+        if not ok: return self._emit_error(msg)
         
         self._emit_progress(0.0)
 
-        ydl_opts = {
-            'progress_hooks': [self.hook_progreso],
-            'restrictfilenames': True,
-            'ignoreerrors': True, 
-            'logger': MyLogger(self._emit_status),
-            'socket_timeout': 15,
-            'retries': 5,
-        }
+        # Construcción del comando masivo
+        cmd = [
+            self.dep_manager.ytdlp_exe,
+            '--newline',        # Vital para poder leer la terminal con Python
+            '--ignore-errors',
+            '--no-warnings',
+            '--restrict-filenames',
+            '--socket-timeout', '15',
+            '--retries', '5'
+        ]
 
         if format_type == "audio":
-            ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio'
-            ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a', 'preferredquality': '192'}]
+            cmd.extend(['-f', 'bestaudio[ext=m4a]/bestaudio', '-x', '--audio-format', 'm4a', '--audio-quality', '192K'])
         else:
-            ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
-            ydl_opts['merge_output_format'] = 'mp4'
+            cmd.extend(['-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--merge-output-format', 'mp4'])
 
-        ffmpeg_loc = self.ffmpeg_manager.get_ffmpeg_path()
-        if ffmpeg_loc: ydl_opts['ffmpeg_location'] = ffmpeg_loc
+        ffmpeg_loc = self.dep_manager.get_ffmpeg_path()
+        if ffmpeg_loc: 
+            cmd.extend(['--ffmpeg-location', ffmpeg_loc])
 
         if modo_estricto:
             self._emit_status("Iniciando Modo Estricto (Optimizado)...")
@@ -230,38 +249,98 @@ class AppLogic:
             self.ruta_catalogo_actual = os.path.join(libreria_maestra, "Indice_Auditoria.csv")
             
             self._cargar_catalogo_en_ram()
-            ydl_opts['noplaylist'] = False if es_playlist else True
-            ydl_opts['outtmpl'] = os.path.join(libreria_maestra, '%(id)s.%(ext)s')
-            ydl_opts['download_archive'] = os.path.join(libreria_maestra, 'historial_descargas.txt')
+            if not es_playlist: cmd.append('--no-playlist')
+            
+            cmd.extend(['-o', os.path.join(libreria_maestra, '%(id)s.%(ext)s')])
+            cmd.extend(['--download-archive', os.path.join(libreria_maestra, 'historial_descargas.txt')])
             destino_final_limpieza = libreria_maestra
             
         else:
             self.ruta_catalogo_actual = None 
             self._emit_status("Iniciando Modo Estándar...")
-            ydl_opts['noplaylist'] = False if es_playlist else True
+            if not es_playlist: cmd.append('--no-playlist')
             
             if es_playlist:
                 carpeta_destino = os.path.join(path, playlist_title)
-                ydl_opts['outtmpl'] = os.path.join(carpeta_destino, '%(title)s.%(ext)s')
+                cmd.extend(['-o', os.path.join(carpeta_destino, '%(title)s.%(ext)s')])
                 destino_final_limpieza = carpeta_destino
             else:
-                ydl_opts['outtmpl'] = os.path.join(path, '%(title)s.%(ext)s')
+                cmd.extend(['-o', os.path.join(path, '%(title)s.%(ext)s')])
                 destino_final_limpieza = path
 
+        # Añadimos la URL al final del comando
+        cmd.append(url)
+
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            # Ejecutamos la terminal invisible y la conectamos a nuestro código
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT, 
+                text=True, 
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                encoding='utf-8',
+                errors='replace' 
+            )
+
+            # RIGOR: Variable para capturar el último grito de auxilio del motor
+            ultimo_error_capturado = ""
+
+            # ESCÁNER REGEX EN TIEMPO REAL
+            for line in process.stdout:
+                if self.cancel_event.is_set():
+                    process.terminate()
+                    raise DownloadCancelledError()
+
+                line_clean = self._clean_ansi(line).strip()
+
+                # --- 1. CAPTURA DE TELEMETRÍA DE ERRORES ---
+                if "ERROR:" in line_clean:
+                    ultimo_error_capturado = line_clean.replace("ERROR: ", "")
+                    continue # Guardamos el error pero dejamos que el proceso termine su limpieza
+
+                # --- 2. ESCÁNER DE PROGRESO ---
+                match_progreso = re.search(r'\[download\]\s+([0-9\.]+)%', line_clean)
+                if match_progreso:
+                    porcentaje_texto = match_progreso.group(1)
+                    self._emit_progress(float(porcentaje_texto) / 100.0)
+                    self._emit_status(f"Descargando: {porcentaje_texto}%")
                 
+                # --- 3. EVENTOS DE CONVERSIÓN ---
+                elif "Destination:" in line_clean and ".m4a" not in line_clean and ".mp4" not in line_clean:
+                    pass 
+                elif "Merging formats" in line_clean or "Extracting audio" in line_clean:
+                    self._emit_status("Procesando conversión final con FFmpeg...")
+                elif "has already been recorded in the archive" in line_clean:
+                    self._emit_status("Omitiendo: El archivo ya existe en el disco.")
+                elif "Sign in" in line_clean or "Private video" in line_clean:
+                    self._emit_status("Aviso: Video omitido (Privado/Restringido).")
+
+                # Actualización de Catálogo si vemos el ID
+                match_id = re.search(r'\[download\] Destination: .*\\(.*?)\.(mp4|m4a)', line_clean)
+                if match_id and self.ruta_catalogo_actual:
+                    vid_id = match_id.group(1)
+                    self._registrar_en_catalogo(vid_id, f"Video_Extraido_{vid_id}")
+
+            process.wait() # Esperamos a que la terminal invisible se cierre
+
+            # --- ANÁLISIS FORENSE DEL CIERRE ---
+            if process.returncode != 0 and not self.cancel_event.is_set():
+                if ultimo_error_capturado:
+                    self._emit_error(f"Fallo en descarga: {ultimo_error_capturado}")
+                else:
+                    self._emit_error("La terminal externa colapsó sin emitir un error legible.")
+                return # RIGOR: Cortamos la ejecución para no mostrar el mensaje de éxito falso
+
             mensaje_final = "¡Descarga de video individual completada con éxito!"
             
             if es_playlist:
                 if modo_estricto:
                     self._emit_status("Construyendo M3U8 basado en archivos reales...")
                     exitosos = self._generar_m3u8(playlist_title, path, format_type)
-                    # RIGOR: Construcción del mensaje de reporte forense
-                    mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} videos reales de un total de {self.total_raw_videos} videos listados originalmente en la playlist de YouTube."
+                    mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} videos reales de un total de {self.total_raw_videos} videos listados originalmente."
                 else:
-                    mensaje_final = f"¡Playlist procesada!\n\nSe intentó descargar {len(self.current_entries)} videos válidos de los {self.total_raw_videos} listados originalmente en YouTube."
+                    mensaje_final = f"¡Playlist procesada!\n\nSe procesó la lista de {self.total_raw_videos} videos listados originalmente en YouTube."
                 
             self._emit_status("¡Proceso Finalizado!")
             self._emit_progress(1.0)
@@ -272,7 +351,7 @@ class AppLogic:
         except DownloadCancelledError:
             self._emit_status("Operación abortada por el usuario.")
         except Exception as e:
-            self._emit_error(f"Error crítico en motor: {str(e)}")
+            self._emit_error(f"Error crítico en subproceso: {str(e)}")
         finally:
             if os.path.exists(destino_final_limpieza):
                 for archivo in os.listdir(destino_final_limpieza):
@@ -280,6 +359,7 @@ class AppLogic:
                         try: os.remove(os.path.join(destino_final_limpieza, archivo))
                         except: pass
 
+    # La función de exportación se mantiene intacta porque no interactúa con yt-dlp
     def exportar_playlist_a_staging(self, rutas_m3u8, ruta_base_destino):
         try:
             if not rutas_m3u8:
