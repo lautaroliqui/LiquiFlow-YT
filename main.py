@@ -18,9 +18,11 @@ class YtDownloaderApp(tk.Tk):
 
         # --- INYECCIÓN DE Icon---
         if hasattr(sys, '_MEIPASS'):
-            icon_path = os.path.join(sys._MEIPASS, 'L.ico')
+            icon_path = os.path.join(sys._MEIPASS, 'LiquiFlow-YT.ico')
+            self.gh_img_path = os.path.join(sys._MEIPASS, 'github.png')
         else:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'L.ico')
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'LiquiFlow-YT.ico')
+            self.gh_img_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'github.png')
 
         if os.path.exists(icon_path):
             try:
@@ -123,16 +125,29 @@ class YtDownloaderApp(tk.Tk):
         self.var_estado = tk.StringVar(value="Sistema en espera...")
         tk.Label(main_frame, textvariable=self.var_estado, font=("Segoe UI", 10, "italic"), fg="#a6a6a6", bg=self.cget('bg')).pack()
 
-        # --- FOOTER (CRÉDITOS Y GITHUB) ---
+       # --- NUEVO FOOTER (CRÉDITOS Y GITHUB) ---
         frame_footer = ttk.Frame(main_frame)
         frame_footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
 
-        # Texto de créditos a la izquierda
         lbl_creditos = tk.Label(frame_footer, text="Desarrollado con ❤️ por LiquiDev", font=("Segoe UI", 9, "italic"), fg="#7f8c8d", bg=self.cget('bg'))
         lbl_creditos.pack(side=tk.LEFT)
 
-        # Botón de GitHub a la derecha
-        btn_github = ttk.Button(frame_footer, text="Ver Código en GitHub", command=lambda: webbrowser.open("https://github.com/lautaroliqui"))
+        # Carga del PNG de GitHub para el botón (con manejo de errores)
+        self.gh_icon = None
+        if os.path.exists(self.gh_img_path):
+            try:
+                self.gh_icon = tk.PhotoImage(file=self.gh_img_path)
+            except Exception as e:
+                print(f"Error cargando logo de GitHub: {e}")
+
+        # Botón con imagen inyectada a la izquierda del texto
+        btn_github = ttk.Button(
+            frame_footer, 
+            text=" Ver Código en GitHub", 
+            image=self.gh_icon, 
+            compound=tk.LEFT, 
+            command=lambda: webbrowser.open("https://github.com/lautaroliqui/LiquiFlow-YT")
+        )
         btn_github.pack(side=tk.RIGHT)
 
     # --- Lógica de Interacción ---

@@ -1,22 +1,16 @@
-# Librería Maestra YT (Python / Tkinter)
+# LiquiFlow YT (Python / Tkinter)
 
-Una aplicación de escritorio robusta y autónoma para descargar, organizar y auditar videos y playlists de YouTube. Diseñada con un motor de procesos desacoplado para garantizar la longevidad del software evadiendo el estrangulamiento de resolución (DRM).
+Una aplicación de escritorio robusta y autónoma para descargar, organizar y auditar videos y playlists de YouTube. Diseñada con un motor de procesos desacoplado para garantizar la longevidad del software evadiendo el estrangulamiento de resolución y los bloqueos de red.
 
-## 🚀 Características Arquitectónicas
+## 🚀 Características Principales
 
-* **Orquestador Autónomo (Zero-Maintenance):** El programa no depende de librerías de Python estáticas. Cuenta con un `DependencyManager` que descarga y auto-actualiza el motor `yt-dlp` desde los repositorios oficiales de GitHub en cada ejecución, garantizando inmunidad a largo plazo contra los bloqueos de YouTube.
-* **Degradación Grácil de Resolución:** Permite establecer un "techo" de calidad (ej. 1080p). El motor extraerá y fusionará las mejores pistas de video y audio disponibles hasta ese límite. Si un video antiguo no alcanza el techo, el sistema bajará automáticamente al siguiente escalón disponible sin interrumpir la descarga masiva.
-* **Modo "Librería Estricta":** Indexa las descargas nombrando los archivos con sus IDs criptográficos únicos, evitando colisiones con caracteres prohibidos por Windows. Genera automáticamente listas de reproducción `.m3u8` con metadatos limpios para reproductores móviles.
-* **Auditoría Forense de Playlists:** Verifica físicamente la existencia de los archivos en el disco duro antes de incluirlos en el catálogo, detectando y omitiendo silenciosamente los "Ghost Links" (videos privados o eliminados).
-* **Exportación a Móvil Zero-Copy:** Preparar listas para el teléfono consume 0 bytes extra. El motor utiliza enlaces duros nativos (`os.link`) para crear carpetas de exportación en milisegundos sin desgaste de disco.
-* **Interfaz Nativa y Asíncrona:** GUI construida en Tkinter puro, impulsada por el motor `sv_ttk` (Sun Valley Dark Theme) con componentes `Accent`. Implementa válvulas de control (Throttle) y un escáner Regex en tiempo real para extraer la telemetría del subproceso sin congelar la ventana.
-
-## 🛡️ Características Principales
-
-* **Descarga Masiva y Degradación Grácil:** Extrae playlists enteras. Si un video no está disponible en 4K, el motor busca automáticamente la siguiente mejor resolución disponible sin interrumpir el proceso.
-* **Tolerancia a Fallos y Enlaces Muertos:** El motor ignora silenciosamente los videos eliminados por copyright o restricciones de edad, garantizando que la playlist se genere con los videos sobrevivientes.
-* **Cortacorrientes Antibaneos (Kill Switch):** Si YouTube bloquea temporalmente tu IP (Rate Limit/Error 429), el sistema intercepta la anomalía, detiene el motor para proteger tu red y guarda el progreso de los videos descargados hasta ese instante.
-* **Inyección Nativa de Metadatos:** Los archivos .mp4/.m4a se compilan con los títulos originales tatuados en su código (ID3 Tags), garantizando compatibilidad perfecta con reproductores estrictos como Windows Media Player.
+* **Orquestador Autónomo (Zero-Maintenance):** El programa no depende de librerías de Python estáticas. Un `DependencyManager` descarga y auto-actualiza el motor `yt-dlp` desde GitHub en cada ejecución, garantizando inmunidad a largo plazo.
+* **Descarga Masiva con Degradación Grácil:** Extrae playlists enteras estableciendo un "techo" de calidad (ej. 1080p). Si un video no alcanza esa resolución, el motor baja automáticamente al siguiente escalón disponible sin interrumpir el proceso.
+* **Cortacorrientes Antibaneos (Kill Switch):** Si YouTube bloquea temporalmente tu IP (Rate Limit/Error 429), el sistema intercepta la anomalía en tiempo real, decapita el subproceso para proteger tu red y guarda el progreso exacto de los videos logrados.
+* **Tolerancia a Fallos y Auditoría Forense:** Verifica la disponibilidad de los enlaces. Ignora silenciosamente los "Ghost Links" (videos privados, bloqueados o eliminados por copyright), garantizando que la playlist se genere intacta con los sobrevivientes.
+* **Librería Estricta e Inyección de Metadatos:** Nombra los archivos físicos con sus IDs criptográficos para evitar colisiones en Windows. Simultáneamente, inyecta los títulos originales dentro del archivo `.mp4/.m4a` (ID3 Tags) para una lectura perfecta en reproductores como VLC o Windows Media Player.
+* **Exportación a Móvil Zero-Copy:** Preparar listas para dispositivos externos consume 0 bytes extra. Utiliza enlaces duros nativos (`os.link`) para crear carpetas de exportación en milisegundos sin desgaste de disco.
+* **Interfaz Nativa y Asíncrona:** Interfaz gráfica construida en Tkinter con el motor `sv_ttk` (Dark Theme). Implementa un escáner Regex que lee la terminal en segundo plano para mostrar métricas en tiempo real sin congelar la ventana.
 
 ## 🛠️ Tecnologías Usadas
 
@@ -30,8 +24,8 @@ Una aplicación de escritorio robusta y autónoma para descargar, organizar y au
 
 1.  **Clonar el repositorio:**
     ```bash
-    git clone [https://github.com/lautaroliqui/simple-youtube-downloader.git](https://github.com/lautaroliqui/simple-youtube-downloader.git)
-    cd simple-youtube-downloader
+    git clone [https://github.com/lautaroliqui/LiquiFlow-YT.git](https://github.com/lautaroliqui/LiquiFlow-YT.git)
+    cd LiquiFlow-YT
     ```
 
 2.  **Instalar dependencias visuales y de red:**
