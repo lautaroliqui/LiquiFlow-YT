@@ -1,3 +1,6 @@
+import os
+import sys
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
@@ -8,10 +11,22 @@ from app_logic import AppLogic
 class YtDownloaderApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Librería Maestra YT")
+        self.title("LiquiFlow YT - Descargador de YouTube Simple y Eficiente")
         self.geometry("800x600")
         self.configure(padx=25, pady=25)
         sv_ttk.set_theme("dark")
+
+        # --- INYECCIÓN DE Icon---
+        if hasattr(sys, '_MEIPASS'):
+            icon_path = os.path.join(sys._MEIPASS, 'L.ico')
+        else:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'L.ico')
+
+        if os.path.exists(icon_path):
+            try:
+                self.iconbitmap(icon_path)
+            except Exception:
+                pass
 
         # Variables de estado
         self.temp_playlist_data = {"url": "", "path": "", "title": ""}
@@ -33,7 +48,7 @@ class YtDownloaderApp(tk.Tk):
 
     def crear_interfaz(self):
         # Título
-        lbl_titulo = tk.Label(self, text="Librería Maestra YT", font=("Segoe UI", 24, "bold"), fg="#4da6ff", bg=self.cget('bg'))
+        lbl_titulo = tk.Label(self, text="LiquiFlow YT", font=("Segoe UI", 24, "bold"), fg="#4da6ff", bg=self.cget('bg'))
         lbl_titulo.pack(pady=(10, 25))
 
         # Contenedor principal con márgenes internos
@@ -60,13 +75,13 @@ class YtDownloaderApp(tk.Tk):
         frame_ops.pack(fill=tk.X, pady=20)
         
         ttk.Label(frame_ops, text="Formato:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        self.var_formato = tk.StringVar(value="video")
-        combo_formato = ttk.Combobox(frame_ops, textvariable=self.var_formato, values=["audio", "video"], state="readonly", width=10, font=("Segoe UI", 10))
+        self.var_formato = tk.StringVar(value="Video")
+        combo_formato = ttk.Combobox(frame_ops, textvariable=self.var_formato, values=["Audio", "Video"], state="readonly", width=10, font=("Segoe UI", 10))
         combo_formato.pack(side=tk.LEFT, padx=5)
         
         ttk.Label(frame_ops, text="Calidad Max:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(25, 5))
-        self.var_resolucion = tk.StringVar(value="max")
-        combo_res = ttk.Combobox(frame_ops, textvariable=self.var_resolucion, values=["max", "2160", "1440", "1080", "720", "480"], state="readonly", width=8, font=("Segoe UI", 10))
+        self.var_resolucion = tk.StringVar(value="MAX")
+        combo_res = ttk.Combobox(frame_ops, textvariable=self.var_resolucion, values=["MAX", "2160", "1440", "1080", "720", "480"], state="readonly", width=8, font=("Segoe UI", 10))
         combo_res.pack(side=tk.LEFT, padx=5)
         
         self.var_estricto = tk.BooleanVar(value=False)
@@ -107,6 +122,18 @@ class YtDownloaderApp(tk.Tk):
         
         self.var_estado = tk.StringVar(value="Sistema en espera...")
         tk.Label(main_frame, textvariable=self.var_estado, font=("Segoe UI", 10, "italic"), fg="#a6a6a6", bg=self.cget('bg')).pack()
+
+        # --- FOOTER (CRÉDITOS Y GITHUB) ---
+        frame_footer = ttk.Frame(main_frame)
+        frame_footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
+
+        # Texto de créditos a la izquierda
+        lbl_creditos = tk.Label(frame_footer, text="Desarrollado con ❤️ por LiquiDev", font=("Segoe UI", 9, "italic"), fg="#7f8c8d", bg=self.cget('bg'))
+        lbl_creditos.pack(side=tk.LEFT)
+
+        # Botón de GitHub a la derecha
+        btn_github = ttk.Button(frame_footer, text="Ver Código en GitHub", command=lambda: webbrowser.open("https://github.com/lautaroliqui"))
+        btn_github.pack(side=tk.RIGHT)
 
     # --- Lógica de Interacción ---
     def examinar_carpeta(self):
@@ -213,9 +240,8 @@ class YtDownloaderApp(tk.Tk):
                 self.logic.descargar(
                     url=url, 
                     path=path, 
-                    format_type=self.var_formato.get(),
-                    resolucion=self.var_resolucion.get(),
-                    estricto_res=self.var_res_estricta.get(),
+                    format_type=self.var_formato.get().lower(),
+                    resolucion=self.var_resolucion.get().lower(),
                     es_playlist=False, 
                     modo_estricto=self.var_estricto.get()
                 )
@@ -237,9 +263,8 @@ class YtDownloaderApp(tk.Tk):
             target=lambda: self.logic.descargar(
                 url=self.temp_playlist_data["url"], 
                 path=self.temp_playlist_data["path"], 
-                format_type=self.var_formato.get(),
-                resolucion=self.var_resolucion.get(),
-                estricto_res=self.var_res_estricta.get(),
+                format_type=self.var_formato.get().lower(),
+                resolucion=self.var_resolucion.get().lower(),
                 es_playlist=True, 
                 playlist_title=self.temp_playlist_data["title"], 
                 modo_estricto=self.var_estricto.get()

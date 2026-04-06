@@ -1,6 +1,5 @@
 import os
 import configparser
-import sys
 import re
 import shutil
 import zipfile
@@ -211,7 +210,7 @@ class AppLogic:
             return videos_exitosos
 
     # --- FASE 3: DESCARGA AUTÓNOMA Y ESCÁNER REGEX ---
-    def descargar(self, url, path, format_type="video", resolucion="max", estricto_res=False, es_playlist=False, playlist_title="", modo_estricto=True):
+    def descargar(self, url, path, format_type="video", resolucion="max", es_playlist=False, playlist_title="", modo_estricto=True):
         if not url or not path: return self._emit_error("Faltan datos")
         
         # Doble check de dependencias
@@ -228,7 +227,10 @@ class AppLogic:
             '--no-warnings',
             '--restrict-filenames',
             '--socket-timeout', '15',
-            '--retries', '5'
+            '--retries', '5',
+            # RIGOR: Inyección de metadatos internos para reproductores rudimentarios
+            '--embed-metadata',
+            '--parse-metadata', 'title:%(title)s'
         ]
 
         if format_type == "audio":
@@ -302,7 +304,15 @@ class AppLogic:
                 # --- 1. CAPTURA DE TELEMETRÍA DE ERRORES ---
                 if "ERROR:" in line_clean:
                     ultimo_error_capturado = line_clean.replace("ERROR: ", "")
-                    continue # Guardamos el error pero dejamos que el proceso termine su limpieza
+                    
+                    # CORTACORRIENTES: Detección de Baneo de YouTube en la rama pública
+                    err_lower = ultimo_error_capturado.lower()
+                    if "bot" in err_lower or "429" in err_lower or "too many requests" in err_lower:
+                        self._emit_status("¡ALERTA ROJA: Bloqueo de YouTube detectado! Abortando...")
+                        process.terminate() 
+                        break 
+                        
+                    continue 
 
                 # --- 2. ESCÁNER DE PROGRESO ---
                 match_progreso = re.search(r'\[download\]\s+([0-9\.]+)%', line_clean)
@@ -331,23 +341,39 @@ class AppLogic:
 
             process.wait() # Esperamos a que la terminal invisible se cierre
 
-            # --- ANÁLISIS FORENSE DEL CIERRE ---
-            if process.returncode != 0 and not self.cancel_event.is_set():
-                if ultimo_error_capturado:
-                    self._emit_error(f"Fallo en descarga: {ultimo_error_capturado}")
-                else:
-                    self._emit_error("La terminal externa colapsó sin emitir un error legible.")
-                return # RIGOR: Cortamos la ejecución para no mostrar el mensaje de éxito falso
+            # --- ANÁLISIS FORENSE DEL CIERRE (VERSIÓN MAIN) ---
+            es_baneo = ultimo_error_capturado and ("bot" in ultimo_error_capturado.lower() or "429" in ultimo_error_capturado or "too many requests" in ultimo_error_capturado.lower())
 
-            mensaje_final = "¡Descarga de video individual completada con éxito!"
+            if process.returncode != 0 and not self.cancel_event.is_set():
+                if es_baneo:
+                    self._emit_status("Iniciando protocolo de interrupción por bloqueo...")
+                elif es_playlist:
+                    if ultimo_error_capturado:
+                        self._emit_status(f"Aviso: Algunos enlaces omitidos ({ultimo_error_capturado})")
+                else:
+                    if ultimo_error_capturado:
+                        self._emit_error(f"Fallo en descarga: {ultimo_error_capturado}")
+                    else:
+                        self._emit_error("La terminal externa colapsó sin emitir un error legible.")
+                    return 
+
+            # --- CONSTRUCCIÓN DEL REPORTE ---
+            if es_baneo:
+                mensaje_final = "⚠️ PROCESO INTERRUMPIDO POR YOUTUBE ⚠️\n\nTu IP ha sido bloqueada temporalmente por exceso de descargas."
+                if es_playlist:
+                    mensaje_final += "\n\nLos videos descargados exitosamente hasta este punto han sido guardados."
+            else:
+                mensaje_final = "¡Descarga de video individual completada con éxito!"
             
             if es_playlist:
                 if modo_estricto:
                     self._emit_status("Construyendo M3U8 basado en archivos reales...")
                     exitosos = self._generar_m3u8(playlist_title, path, format_type)
-                    mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} videos reales de un total de {self.total_raw_videos} videos listados originalmente."
+                    if not es_baneo:
+                        mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} videos reales de un total de {self.total_raw_videos} videos listados."
                 else:
-                    mensaje_final = f"¡Playlist procesada!\n\nSe procesó la lista de {self.total_raw_videos} videos listados originalmente en YouTube."
+                    if not es_baneo:
+                        mensaje_final = f"¡Playlist procesada!\n\nSe procesó la lista de {self.total_raw_videos} videos listados originalmente en YouTube."
                 
             self._emit_status("¡Proceso Finalizado!")
             self._emit_progress(1.0)

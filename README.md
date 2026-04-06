@@ -11,6 +11,13 @@ Una aplicación de escritorio robusta y autónoma para descargar, organizar y au
 * **Exportación a Móvil Zero-Copy:** Preparar listas para el teléfono consume 0 bytes extra. El motor utiliza enlaces duros nativos (`os.link`) para crear carpetas de exportación en milisegundos sin desgaste de disco.
 * **Interfaz Nativa y Asíncrona:** GUI construida en Tkinter puro, impulsada por el motor `sv_ttk` (Sun Valley Dark Theme) con componentes `Accent`. Implementa válvulas de control (Throttle) y un escáner Regex en tiempo real para extraer la telemetría del subproceso sin congelar la ventana.
 
+## 🛡️ Características Principales
+
+* **Descarga Masiva y Degradación Grácil:** Extrae playlists enteras. Si un video no está disponible en 4K, el motor busca automáticamente la siguiente mejor resolución disponible sin interrumpir el proceso.
+* **Tolerancia a Fallos y Enlaces Muertos:** El motor ignora silenciosamente los videos eliminados por copyright o restricciones de edad, garantizando que la playlist se genere con los videos sobrevivientes.
+* **Cortacorrientes Antibaneos (Kill Switch):** Si YouTube bloquea temporalmente tu IP (Rate Limit/Error 429), el sistema intercepta la anomalía, detiene el motor para proteger tu red y guarda el progreso de los videos descargados hasta ese instante.
+* **Inyección Nativa de Metadatos:** Los archivos .mp4/.m4a se compilan con los títulos originales tatuados en su código (ID3 Tags), garantizando compatibilidad perfecta con reproductores estrictos como Windows Media Player.
+
 ## 🛠️ Tecnologías Usadas
 
 * **Python 3.10+**
