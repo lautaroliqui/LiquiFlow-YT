@@ -6,6 +6,7 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import time
 import sv_ttk
+from PIL import Image, ImageTk
 from app_logic import AppLogic
 
 class YtDownloaderApp(tk.Tk):
@@ -26,9 +27,12 @@ class YtDownloaderApp(tk.Tk):
 
         if os.path.exists(icon_path):
             try:
-                self.iconbitmap(icon_path)
-            except Exception:
-                pass
+                img = Image.open(icon_path)
+                img_suavizada = img.resize((32, 32), Image.Resampling.LANCZOS)
+                self._icon_photo = ImageTk.PhotoImage(img_suavizada) 
+                self.iconphoto(False, self._icon_photo)
+            except Exception as e:
+                print(f"Error crítico cargando icono de ventana: {e}")
 
         # Variables de estado
         self.temp_playlist_data = {"url": "", "path": "", "title": ""}
