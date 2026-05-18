@@ -208,6 +208,28 @@ class AppLogic:
                     videos_exitosos += 1
             
             return videos_exitosos
+        
+    def _generar_m3u8_estandar(self, playlist_title, carpeta_destino, format_type):
+        ruta_m3u8 = os.path.join(carpeta_destino, f"{playlist_title}.m3u8")
+        ext = ".mp4" if format_type == "video" else ".m4a"
+        
+        if not os.path.exists(carpeta_destino): return 0
+        
+        # RIGOR: Escaneamos los archivos físicos reales en lugar de adivinar sus nombres
+        archivos = [f for f in os.listdir(carpeta_destino) if f.endswith(ext)]
+        
+        # El ordenamiento alfabético ahora es matemáticamente perfecto por el prefijo numérico
+        archivos.sort() 
+        
+        with open(ruta_m3u8, 'w', encoding='utf-8') as f:
+            f.write("#EXTM3U\n")
+            for archivo in archivos:
+                # Limpiamos el prefijo numérico y la extensión para que el título del M3U8 se vea limpio
+                titulo_limpio = re.sub(r'^\d+_-_', '', archivo).replace(ext, '')
+                f.write(f"#EXTINF:-1,{titulo_limpio}\n")
+                f.write(f"{archivo}\n")
+                
+        return len(archivos)
 
     # --- FASE 3: DESCARGA AUTÓNOMA Y ESCÁNER REGEX ---
     def descargar(self, url, path, format_type="video", resolucion="max", es_playlist=False, playlist_title="", modo_estricto=True):
@@ -269,7 +291,8 @@ class AppLogic:
             
             if es_playlist:
                 carpeta_destino = os.path.join(path, playlist_title)
-                cmd.extend(['-o', os.path.join(carpeta_destino, '%(title)s.%(ext)s')])
+                # RIGOR: Inyección para forzar el orden nativo del SO (Ej: 001_-_Titulo.mp4)
+                cmd.extend(['-o', os.path.join(carpeta_destino, '%(playlist_index)03d_-_%(title)s.%(ext)s')])
                 destino_final_limpieza = carpeta_destino
             else:
                 cmd.extend(['-o', os.path.join(path, '%(title)s.%(ext)s')])
@@ -372,8 +395,10 @@ class AppLogic:
                     if not es_baneo:
                         mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} videos reales de un total de {self.total_raw_videos} videos listados."
                 else:
+                    self._emit_status("Construyendo M3U8 Estándar...")
+                    exitosos = self._generar_m3u8_estandar(playlist_title, destino_final_limpieza, format_type)
                     if not es_baneo:
-                        mensaje_final = f"¡Playlist procesada!\n\nSe procesó la lista de {self.total_raw_videos} videos listados originalmente en YouTube."
+                        mensaje_final = f"¡Playlist procesada!\n\nSe han descargado y ordenado {exitosos} videos reales en la carpeta destino."
                 
             self._emit_status("¡Proceso Finalizado!")
             self._emit_progress(1.0)

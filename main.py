@@ -54,7 +54,7 @@ class YtDownloaderApp(tk.Tk):
 
     def crear_interfaz(self):
         # Título
-        lbl_titulo = tk.Label(self, text="LiquiFlow YT", font=("Segoe UI", 24, "bold"), fg="#4da6ff", bg=self.cget('bg'))
+        lbl_titulo = tk.Label(self, text="LiquiFlow YT", font=("Segoe UI", 24, "bold"), fg="#FF0000", bg=self.cget('bg'))
         lbl_titulo.pack(pady=(10, 25))
 
         # Contenedor principal con márgenes internos
@@ -123,8 +123,15 @@ class YtDownloaderApp(tk.Tk):
 
         # Barra de Progreso y Estado
         self.var_progreso = tk.DoubleVar(value=0)
-        self.barra_progreso = ttk.Progressbar(main_frame, variable=self.var_progreso, maximum=1.0)
-        self.barra_progreso.pack(fill=tk.X, pady=(30, 10))
+        
+        # Fondo oscuro de la barra (El "carril")
+        self.frame_progreso_fondo = tk.Frame(main_frame, bg="#2b2b2b", height=6)
+        self.frame_progreso_fondo.pack(fill=tk.X, pady=(30, 10))
+        
+        # La barra roja superpuesta que crecerá dinámicamente
+        self.barra_progreso_roja = tk.Frame(self.frame_progreso_fondo, bg="#ff3333", height=6, width=0)
+        # Usamos .place() en lugar de .pack() para controlar su posición absoluta en píxeles
+        self.barra_progreso_roja.place(x=0, y=0)
         
         self.var_estado = tk.StringVar(value="Sistema en espera...")
         tk.Label(main_frame, textvariable=self.var_estado, font=("Segoe UI", 10, "italic"), fg="#a6a6a6", bg=self.cget('bg')).pack()
@@ -181,6 +188,11 @@ class YtDownloaderApp(tk.Tk):
     # --- Actualización Segura desde Hilos ---
     def actualizar_progreso(self, val):
         self.var_progreso.set(val)
+        
+        ancho_total = self.frame_progreso_fondo.winfo_width()
+        ancho_actual = int(ancho_total * val)
+        
+        self.barra_progreso_roja.config(width=ancho_actual)
 
     def actualizar_estado(self, msg):
         tiempo_actual = time.time()
@@ -210,13 +222,14 @@ class YtDownloaderApp(tk.Tk):
 
     def reset_ui(self):
         self.frame_confirmacion.pack_forget()
-        self.frame_botones.pack(pady=10)
+        self.frame_botones.pack(pady=10, before=self.frame_progreso_fondo)
         
         self.btn_descargar.config(state=tk.NORMAL, text="DESCARGAR")
         self.btn_cancelar.config(state=tk.DISABLED)
         self.btn_exportar.config(state=tk.NORMAL, text="EXPORTAR A MÓVIL")
         
         self.var_progreso.set(0)
+        self.barra_progreso_roja.config(width=0)
 
     # --- Controladores de Procesos ---
     def iniciar_proceso(self):
@@ -271,11 +284,13 @@ class YtDownloaderApp(tk.Tk):
     def mostrar_confirmacion(self, texto):
         self.lbl_confirmacion.config(text=texto)
         self.frame_botones.pack_forget()
-        self.frame_confirmacion.pack(pady=20)
+        # RIGOR: Anclamos el panel al nuevo contenedor de la barra roja
+        self.frame_confirmacion.pack(pady=20, before=self.frame_progreso_fondo)
 
     def confirmar_si(self):
         self.frame_confirmacion.pack_forget()
-        self.frame_botones.pack(pady=20)
+        # RIGOR: Anclamos los botones al nuevo contenedor de la barra roja
+        self.frame_botones.pack(pady=10, before=self.frame_progreso_fondo)
         self.btn_descargar.config(text="Procesando Playlist...")
         
         threading.Thread(
