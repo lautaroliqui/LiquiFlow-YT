@@ -82,13 +82,15 @@ class YtDownloaderApp(tk.Tk):
         
         ttk.Label(frame_ops, text="Formato:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 5))
         self.var_formato = tk.StringVar(value="Video")
-        combo_formato = ttk.Combobox(frame_ops, textvariable=self.var_formato, values=["Audio", "Video"], state="readonly", width=10, font=("Segoe UI", 10))
-        combo_formato.pack(side=tk.LEFT, padx=5)
+        # Anclamos el combo de formato en self.
+        self.combo_formato = ttk.Combobox(frame_ops, textvariable=self.var_formato, values=["Audio", "Video"], state="readonly", width=10, font=("Segoe UI", 10))
+        self.combo_formato.pack(side=tk.LEFT, padx=5)
         
         ttk.Label(frame_ops, text="Calidad Max:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(25, 5))
         self.var_resolucion = tk.StringVar(value="MAX")
-        combo_res = ttk.Combobox(frame_ops, textvariable=self.var_resolucion, values=["MAX", "2160", "1440", "1080", "720", "480"], state="readonly", width=8, font=("Segoe UI", 10))
-        combo_res.pack(side=tk.LEFT, padx=5)
+        # Anclamos el combo de resolución en self. para poder desactivarlo
+        self.combo_res = ttk.Combobox(frame_ops, textvariable=self.var_resolucion, values=["MAX", "2160", "1440", "1080", "720", "480"], state="readonly", width=10, font=("Segoe UI", 10))
+        self.combo_res.pack(side=tk.LEFT, padx=5)
         
         self.var_estricto = tk.BooleanVar(value=False)
         ttk.Checkbutton(frame_ops, text="Librería Estricta (Avanzado)", variable=self.var_estricto).pack(side=tk.LEFT, padx=30)
@@ -151,6 +153,7 @@ class YtDownloaderApp(tk.Tk):
             except Exception as e:
                 print(f"Error cargando logo de GitHub: {e}")
 
+        self.var_formato.trace_add("write", self._adaptar_ui_al_formato)
         # Botón con imagen inyectada a la izquierda del texto
         btn_github = ttk.Button(
             frame_footer, 
@@ -308,7 +311,21 @@ class YtDownloaderApp(tk.Tk):
     def confirmar_no(self):
         self.reset_ui()
         self.actualizar_estado("Operación cancelada por el usuario.")
+        
+    def _adaptar_ui_al_formato(self, *args):
+        """Bloquea o desbloquea controles según el contexto técnico."""
+        formato = self.var_formato.get()
+        
+        if formato == "Audio":
+            # Bloqueamos el selector de resolución
+            self.combo_res.config(state="disabled")
+            self.var_resolucion.set("AAC High")
+        else:
+            # Desbloqueamos el selector para video
+            self.combo_res.config(state="readonly")
+            self.var_resolucion.set("MAX")
 
+# RIGOR: Este bloque NO pertenece a la clase, va pegado al margen izquierdo (0 espacios)
 if __name__ == "__main__":
     app = YtDownloaderApp()
     app.mainloop()

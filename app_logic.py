@@ -8,7 +8,17 @@ import subprocess
 import json
 from io import BytesIO
 
-CONFIG_FILE = "config.ini"
+def _obtener_ruta_configuracion():
+    """RIGOR: Genera una ruta en el directorio nativo de AppData para no ensuciar la raíz del ejecutable."""
+    appdata = os.getenv('LOCALAPPDATA')
+    if not appdata:
+        appdata = os.path.expanduser("~")
+        
+    config_dir = os.path.join(appdata, 'LiquiFlow_YT')
+    os.makedirs(config_dir, exist_ok=True)
+    return os.path.join(config_dir, 'config.ini')
+
+CONFIG_FILE = _obtener_ruta_configuracion()
 config = configparser.ConfigParser()
 ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
@@ -381,24 +391,27 @@ class AppLogic:
                     return 
 
             # --- CONSTRUCCIÓN DEL REPORTE ---
+            termino = "audio" if format_type == "audio" else "video"
+            termino_plural = "audios" if format_type == "audio" else "videos"
+
             if es_baneo:
                 mensaje_final = "⚠️ PROCESO INTERRUMPIDO POR YOUTUBE ⚠️\n\nTu IP ha sido bloqueada temporalmente por exceso de descargas."
                 if es_playlist:
-                    mensaje_final += "\n\nLos videos descargados exitosamente hasta este punto han sido guardados."
+                    mensaje_final += f"\n\nLos {termino_plural} descargados exitosamente hasta este punto han sido guardados."
             else:
-                mensaje_final = "¡Descarga de video individual completada con éxito!"
+                mensaje_final = f"¡Descarga de {termino} individual completada con éxito!"
             
             if es_playlist:
                 if modo_estricto:
                     self._emit_status("Construyendo M3U8 basado en archivos reales...")
                     exitosos = self._generar_m3u8(playlist_title, path, format_type)
                     if not es_baneo:
-                        mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} videos reales de un total de {self.total_raw_videos} videos listados."
+                        mensaje_final = f"¡Playlist procesada!\n\nSe han extraído {exitosos} {termino_plural} reales de un total de {self.total_raw_videos} listados en origen."
                 else:
                     self._emit_status("Construyendo M3U8 Estándar...")
                     exitosos = self._generar_m3u8_estandar(playlist_title, destino_final_limpieza, format_type)
                     if not es_baneo:
-                        mensaje_final = f"¡Playlist procesada!\n\nSe han descargado y ordenado {exitosos} videos reales en la carpeta destino."
+                        mensaje_final = f"¡Playlist procesada!\n\nSe han descargado y ordenado {exitosos} {termino_plural} reales en la carpeta destino."
                 
             self._emit_status("¡Proceso Finalizado!")
             self._emit_progress(1.0)
@@ -444,6 +457,11 @@ class AppLogic:
 
             lista_archivos = list(ids_unicos_a_exportar)
             total = len(lista_archivos)
+
+            if total == 0:
+                self._emit_status("Operación abortada: Formato estándar detectado.")
+                return self._emit_error("Playlist de Modo Estándar detectada.\n\nEl botón de Exportar solo se utiliza para descargas de Librería Estricta. Las descargas estándar ya están listas para tu móvil; simplemente copia la carpeta descargada a tu dispositivo.")
+
             enlazados = 0
             copiados = 0
 
